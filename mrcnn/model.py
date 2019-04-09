@@ -836,20 +836,20 @@ def rpn_graph(feature_map, anchors_per_location, anchor_stride):
                    every pixel in the feature map), or 2 (every other pixel).
 
     Returns:
-        rpn_class_logits: [batch, H * W * anchors_per_location, 2] Anchor classifier logits (before softmax)
-        rpn_probs: [batch, H * W * anchors_per_location, 2] Anchor classifier probabilities.
-        rpn_bbox: [batch, H * W * anchors_per_location, (dy, dx, log(dh), log(dw))] Deltas to be
+        rpn_class_logits: [batch, D * H * W * anchors_per_location, 2] Anchor classifier logits (before softmax)
+        rpn_probs: [batch, D * H * W * anchors_per_location, 2] Anchor classifier probabilities.
+        rpn_bbox: [batch, D * H * W * anchors_per_location, (dz, dy, dx, log(dd), log(dh), log(dw))] Deltas to be
                   applied to anchors.
     """
     # TODO: check if stride of 2 causes alignment issues if the feature map
     # is not even.
     # Shared convolutional base of the RPN
-    shared = KL.Conv2D(512, (3, 3), padding='same', activation='relu',
+    shared = KL.Conv3D(512, (3, 3, 3), padding='same', activation='relu',
                        strides=anchor_stride,
                        name='rpn_conv_shared')(feature_map)
 
-    # Anchor Score. [batch, height, width, anchors per location * 2].
-    x = KL.Conv2D(2 * anchors_per_location, (1, 1), padding='valid',
+    # Anchor Score. [batch, depth, height, width, anchors per location * 2].
+    x = KL.Conv3D(2 * anchors_per_location, (1, 1, 1), padding='valid',
                   activation='linear', name='rpn_class_raw')(shared)
 
     # Reshape to [batch, anchors, 2]
@@ -860,13 +860,13 @@ def rpn_graph(feature_map, anchors_per_location, anchor_stride):
     rpn_probs = KL.Activation(
         "softmax", name="rpn_class_xxx")(rpn_class_logits)
 
-    # Bounding box refinement. [batch, H, W, anchors per location * depth]
-    # where depth is [x, y, log(w), log(h)]
-    x = KL.Conv2D(anchors_per_location * 4, (1, 1), padding="valid",
+    # Bounding box refinement. [batch, D, H, W, anchors per location * depth]
+    # where depth is [x, y, z, log(w), log(h), log(d)]
+    x = KL.Conv3D(anchors_per_location * 6, (1, 1, 1), padding="valid",
                   activation='linear', name='rpn_bbox_pred')(shared)
 
-    # Reshape to [batch, anchors, 4]
-    rpn_bbox = KL.Lambda(lambda t: tf.reshape(t, [tf.shape(t)[0], -1, 4]))(x)
+    # Reshape to [batch, anchors, 6]
+    rpn_bbox = KL.Lambda(lambda t: tf.reshape(t, [tf.shape(t)[0], -1, 6]))(x)
 
     return [rpn_class_logits, rpn_probs, rpn_bbox]
 
@@ -882,9 +882,9 @@ def build_rpn_model(anchor_stride, anchors_per_location, depth):
     depth: Depth of the backbone feature map.
 
     Returns a Keras Model object. The model outputs, when called, are:
-    rpn_class_logits: [batch, H * W * anchors_per_location, 2] Anchor classifier logits (before softmax)
-    rpn_probs: [batch, H * W * anchors_per_location, 2] Anchor classifier probabilities.
-    rpn_bbox: [batch, H * W * anchors_per_location, (dy, dx, log(dh), log(dw))] Deltas to be
+    rpn_class_logits: [batch, D * H * W * anchors_per_location, 2] Anchor classifier logits (before softmax)
+    rpn_probs: [batch, D * H * W * anchors_per_location, 2] Anchor classifier probabilities.
+    rpn_bbox: [batch, D * H * W * anchors_per_location, (dz, dy, dx, log(dd), log(dh), log(dw))] Deltas to be
                 applied to anchors.
     """
     input_feature_map = KL.Input(shape=[None, None, depth],
